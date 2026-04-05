@@ -5,6 +5,7 @@ import type { AnalysisState } from '@/types'
 import ProgressTracker from '@/components/ProgressTracker'
 import IndustryOverview from '@/components/IndustryOverview'
 import CompetitorCard from '@/components/CompetitorCard'
+import ComparisonTable from '@/components/ComparisonTable'
 import NewsTimeline from '@/components/NewsTimeline'
 import SWOTMatrix from '@/components/SWOTMatrix'
 import BCGMatrix from '@/components/BCGMatrix'
@@ -13,30 +14,45 @@ import OpportunitiesSection from '@/components/OpportunitiesSection'
 import InsightsSection from '@/components/InsightsSection'
 import ExportBar from '@/components/ExportBar'
 import SectionNav from '@/components/SectionNav'
-import { ArrowLeft, AlertTriangle, RefreshCw } from 'lucide-react'
+import { ArrowLeft, AlertTriangle, RefreshCw, Printer } from 'lucide-react'
+import { saveToHistory } from '@/lib/history'
 
 export default function AnalysisPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const [state, setState] = useState<AnalysisState | null>(null)
   const [connectionError, setConnectionError] = useState(false)
+  const [view, setView] = useState<'cards' | 'table'>('cards')
   const esRef = useRef<EventSource | null>(null)
+  const savedRef = useRef(false)
 
   useEffect(() => {
     if (!id) return
 
-    // Initial fetch
     fetch(`/api/analysis/${id}`)
       .then(r => r.json())
       .then((s: AnalysisState) => {
         setState(s)
+        if (s.status === 'completed') persistHistory(s)
         if (s.status === 'completed' || s.status === 'failed') return
         startStream()
       })
       .catch(() => setConnectionError(true))
 
     return () => { esRef.current?.close() }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
+
+  const persistHistory = (s: AnalysisState) => {
+    if (savedRef.current || !s.result) return
+    savedRef.current = true
+    saveToHistory({
+      id: s.id,
+      industry: s.industry,
+      competitorCount: s.result.competitors.length,
+      createdAt: s.createdAt,
+    })
+  }
 
   const startStream = () => {
     const es = new EventSource(`/api/analysis/${id}/stream`)
@@ -46,16 +62,16 @@ export default function AnalysisPage() {
       try {
         const data = JSON.parse(e.data) as AnalysisState
         setState(data)
-        if (data.status === 'completed' || data.status === 'failed') {
+        if (data.status === 'completed') {
+          persistHistory(data)
+          es.close()
+        } else if (data.status === 'failed') {
           es.close()
         }
       } catch { /* ignore */ }
     }
 
-    es.onerror = () => {
-      es.close()
-      setConnectionError(true)
-    }
+    es.onerror = () => { es.close(); setConnectionError(true) }
   }
 
   // ── Loading / Error states ─────────────────────────────────────────────────
@@ -92,9 +108,7 @@ export default function AnalysisPage() {
           <h2 className="text-2xl font-bold text-white mb-2">
             Analysing: <span className="text-brand-400">{state.industry}</span>
           </h2>
-          <p className="text-slate-500 text-sm">
-            Our AI research engine is gathering intelligence…
-          </p>
+          <p className="text-slate-500 text-sm">Our AI research engine is gathering intelligence…</p>
         </div>
         <ProgressTracker steps={state.steps} progress={state.progress} currentStep={state.currentStep} />
       </div>
@@ -128,14 +142,12 @@ export default function AnalysisPage() {
   const { result } = state
   if (!result) return null
 
-  const completedAt = state.completedAt
-    ? new Date(state.completedAt).toLocaleString()
-    : ''
+  const completedAt = state.completedAt ? new Date(state.completedAt).toLocaleString() : ''
 
   return (
     <div className="min-h-screen">
       {/* Top bar */}
-      <div className="sticky top-14 z-40 border-b border-surface-border bg-surface/80 backdrop-blur-sm">
+      <div className="sticky top-14 z-40 border-b border-surface-border bg-surface/80 backdrop-blur-sm no-print">
         <div className="max-w-screen-2xl mx-auto px-6 h-12 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <button onClick={() => router.push('/')} className="text-slate-400 hover:text-white transition flex-shrink-0">
@@ -144,7 +156,16 @@ export default function AnalysisPage() {
             <h1 className="font-bold text-white text-sm truncate">{result.industry}</h1>
             <span className="hidden sm:inline text-xs text-slate-500">{completedAt}</span>
           </div>
-          <ExportBar analysisId={id} />
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-elevated border border-surface-border rounded-lg text-xs text-slate-400 hover:text-white hover:border-brand-500 transition"
+              title="Print / Save as PDF"
+            >
+              <Printer className="w-3.5 h-3.5" /> PDF
+            </button>
+            <ExportBar analysisId={id} />
+          </div>
         </div>
       </div>
 
@@ -161,89 +182,97 @@ export default function AnalysisPage() {
             <p className="text-xs text-amber-300/80">{result.aiDisclaimer}</p>
           </div>
 
-          {/* ── INDUSTRY OVERVIEW ──────────────────────────────────────────── */}
+          {/* ── INDUSTRY OVERVIEW ────────────────────────────────────────── */}
           <section id="overview">
             <SectionHeader icon="🏭" title="Industry Overview" />
             <IndustryOverview data={result.industryOverview} />
           </section>
 
-          {/* ── COMPETITORS ──────────────────────────────────────────────────── */}
+          {/* ── COMPETITORS ─────────────────────────────────────────────── */}
           <section id="competitors">
-            <SectionHeader
-              icon="⚔️"
-              title="Competitor Landscape"
-              badge={`${result.competitors.length} competitors`}
-            />
-            <div className="space-y-4">
-              {result.competitors.map((c, i) => (
-                <CompetitorCard key={c.id} competitor={c} index={i} />
-              ))}
+            <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">⚔️</span>
+                <h2 className="text-xl font-bold text-white">Competitor Landscape</h2>
+                <span className="px-2 py-0.5 bg-surface-elevated border border-surface-border rounded-full text-xs text-slate-400">
+                  {result.competitors.length} competitors
+                </span>
+              </div>
+              {/* View toggle */}
+              <div className="flex items-center gap-1 bg-surface-elevated border border-surface-border rounded-lg p-1 no-print">
+                <button
+                  onClick={() => setView('cards')}
+                  className={`px-3 py-1 rounded text-xs font-medium transition ${view === 'cards' ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Cards
+                </button>
+                <button
+                  onClick={() => setView('table')}
+                  className={`px-3 py-1 rounded text-xs font-medium transition ${view === 'table' ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Compare
+                </button>
+              </div>
             </div>
+
+            {view === 'cards' ? (
+              <div className="space-y-4">
+                {result.competitors.map((c, i) => (
+                  <CompetitorCard key={c.id} competitor={c} index={i} />
+                ))}
+              </div>
+            ) : (
+              <ComparisonTable competitors={result.competitors} />
+            )}
           </section>
 
-          {/* ── NEWS ────────────────────────────────────────────────────────── */}
+          {/* ── NEWS ──────────────────────────────────────────────────────── */}
           <section id="news">
-            <SectionHeader
-              icon="📰"
-              title="Latest News & Developments"
-              badge={`${result.news.length} items`}
-            />
+            <SectionHeader icon="📰" title="Latest News & Developments" badge={`${result.news.length} items`} />
             <NewsTimeline news={result.news} />
           </section>
 
-          {/* ── STRATEGIC ANALYSIS ──────────────────────────────────────────── */}
+          {/* ── STRATEGIC ANALYSIS ──────────────────────────────────────── */}
           <section id="strategic">
             <SectionHeader icon="♟️" title="Strategic Analysis" />
             <div className="bg-surface-card border border-surface-border rounded-2xl p-5">
-              <p className="text-slate-300 leading-relaxed mb-4">{result.strategicAnalysis.competitiveDynamics}</p>
+              <p className="text-slate-300 leading-relaxed">{result.strategicAnalysis.competitiveDynamics}</p>
             </div>
           </section>
 
-          {/* ── SWOT ────────────────────────────────────────────────────────── */}
+          {/* ── SWOT ─────────────────────────────────────────────────────── */}
           <section id="swot">
             <SectionHeader icon="🎯" title="Industry SWOT Analysis" />
             <SWOTMatrix swot={result.strategicAnalysis.industrySWOT} title="Industry-wide SWOT" />
           </section>
 
-          {/* ── BCG MATRIX ──────────────────────────────────────────────────── */}
+          {/* ── BCG MATRIX ───────────────────────────────────────────────── */}
           <section id="bcg">
             <SectionHeader icon="📊" title="BCG Growth–Share Matrix" />
-            <BCGMatrix
-              competitors={result.competitors}
-              narrative={result.strategicAnalysis.bcgNarrative}
-            />
+            <BCGMatrix competitors={result.competitors} narrative={result.strategicAnalysis.bcgNarrative} />
           </section>
 
-          {/* ── PORTER'S FIVE FORCES ────────────────────────────────────────── */}
+          {/* ── PORTER'S FIVE FORCES ─────────────────────────────────────── */}
           <section id="porter">
             <SectionHeader icon="⚖️" title="Porter's Five Forces" />
             <PortersForcesChart forces={result.strategicAnalysis.portersFiveForces} />
           </section>
 
-          {/* ── OPPORTUNITIES ────────────────────────────────────────────────── */}
+          {/* ── OPPORTUNITIES ────────────────────────────────────────────── */}
           <section id="opps">
-            <SectionHeader
-              icon="💡"
-              title="Opportunities & Market Gaps"
-              badge={`${result.opportunities.length} found`}
-            />
+            <SectionHeader icon="💡" title="Opportunities & Market Gaps" badge={`${result.opportunities.length} found`} />
             <OpportunitiesSection opportunities={result.opportunities} />
           </section>
 
-          {/* ── INSIGHTS ─────────────────────────────────────────────────────── */}
+          {/* ── INSIGHTS ─────────────────────────────────────────────────── */}
           <section id="insights">
-            <SectionHeader
-              icon="🚀"
-              title="Actionable Insights"
-              badge={`${result.actionableInsights.length} recommendations`}
-            />
+            <SectionHeader icon="🚀" title="Actionable Insights" badge={`${result.actionableInsights.length} recommendations`} />
             <InsightsSection insights={result.actionableInsights} />
           </section>
 
           {/* Footer */}
           <div className="pb-12 text-center text-xs text-slate-600">
-            Generated {completedAt} · Confidence: {result.dataConfidence.toUpperCase()} ·{' '}
-            Powered by Claude AI
+            Generated {completedAt} · Confidence: {result.dataConfidence.toUpperCase()} · Powered by Claude AI
           </div>
         </div>
       </div>
@@ -251,9 +280,7 @@ export default function AnalysisPage() {
   )
 }
 
-function SectionHeader({
-  icon, title, badge,
-}: { icon: string; title: string; badge?: string }) {
+function SectionHeader({ icon, title, badge }: { icon: string; title: string; badge?: string }) {
   return (
     <div className="flex items-center gap-3 mb-5">
       <span className="text-2xl">{icon}</span>

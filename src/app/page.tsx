@@ -1,4 +1,5 @@
 import InputForm from '@/components/InputForm'
+import RecentAnalyses from '@/components/RecentAnalyses'
 import { Cpu, TrendingUp, Shield, Lightbulb, BarChart2, Zap } from 'lucide-react'
 
 const FEATURES = [
@@ -39,6 +40,11 @@ export default function HomePage() {
           </p>
 
           <InputForm />
+
+          {/* Recent analyses — client component reads localStorage */}
+          <div className="mt-8">
+            <RecentAnalyses />
+          </div>
         </div>
       </section>
 

@@ -60,3 +60,54 @@ input:-webkit-autofill:focus {
   background-color: #4338ca;
   color: #fff;
 }
+
+/* ── Print / PDF styles ────────────────────────────────────────────────────── */
+
+@media print {
+  /* Reset dark background for print */
+  :root { color-scheme: light; }
+  html, body { background: #fff !important; color: #111 !important; font-size: 11pt; }
+
+  /* Hide interactive chrome */
+  header, nav, .no-print,
+  [data-print="hide"] { display: none !important; }
+
+  /* Reset surface colours */
+  .bg-surface-card,
+  .bg-surface-elevated,
+  [class*="bg-surface"] {
+    background: #fff !important;
+    border-color: #d1d5db !important;
+  }
+
+  /* Recolour text */
+  .text-white           { color: #111 !important; }
+  .text-slate-200,
+  .text-slate-300,
+  .text-slate-400       { color: #374151 !important; }
+  .text-slate-500,
+  .text-slate-600       { color: #6b7280 !important; }
+
+  /* Recolour brand accent */
+  .text-brand-300,
+  .text-brand-400       { color: #4338ca !important; }
+
+  /* Cards get a light border */
+  [class*="rounded-2xl"],
+  [class*="rounded-xl"] { border: 1px solid #e5e7eb !important; break-inside: avoid; }
+
+  /* Expand collapsed competitor cards on print */
+  details { display: block !important; }
+  details summary::marker { display: none; }
+
+  /* BCG SVG: already vector, prints fine */
+
+  /* Page breaks */
+  section { break-before: auto; break-inside: avoid; }
+  h2      { break-after: avoid; }
+
+  @page {
+    margin: 15mm 12mm;
+    size: A4;
+  }
+}
